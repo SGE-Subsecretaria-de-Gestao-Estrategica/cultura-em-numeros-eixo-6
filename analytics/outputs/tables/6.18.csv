@@ -1,0 +1,55 @@
+﻿tipo;capital;Cod_UF;Macrorregiões;Abrev_Macrorregiões;Estado;media_salarial
+Capital;Rio Branco;12;Norte;NO;Acre;2875.66
+Capital;Maceió;27;Nordeste;NE;Alagoas;3245.55
+Capital;Macapá;16;Norte;NO;Amapá;2122.51
+Capital;Manaus;13;Norte;NO;Amazonas;3573.2
+Capital;Salvador;29;Nordeste;NE;Bahia;4239.41
+Capital;Fortaleza;23;Nordeste;NE;Ceará;3012.51
+Capital;Brasília;53;Centro-Oeste;CO;Distrito Federal;5538.93
+Capital;Vitória;32;Sudeste;SD;Espírito Santo;5583.49
+Capital;Goiânia;52;Centro-Oeste;CO;Goiás;3768.19
+Capital;São Luís;21;Nordeste;NE;Maranhão;2711.81
+Capital;Cuiabá;51;Centro-Oeste;CO;Mato Grosso;4034.59
+Capital;Campo Grande;50;Centro-Oeste;CO;Mato Grosso do Sul;3210.48
+Capital;Belo Horizonte;31;Sudeste;SD;Minas Gerais;6107.97
+Capital;Curitiba;41;Sul;SU;Paraná;5202.44
+Capital;João Pessoa;25;Nordeste;NE;Paraíba;3321.67
+Capital;Belém;15;Norte;NO;Pará;3527.76
+Capital;Recife;26;Nordeste;NE;Pernambuco;4437.12
+Capital;Teresina;22;Nordeste;NE;Piauí;2319.33
+Capital;Natal;24;Nordeste;NE;Rio Grande do Norte;2677.52
+Capital;Porto Alegre;43;Sul;SU;Rio Grande do Sul;6271.75
+Capital;Rio de Janeiro;33;Sudeste;SD;Rio de Janeiro;6092.63
+Capital;Porto Velho;11;Norte;NO;Rondônia;2292.47
+Capital;Boa Vista;14;Norte;NO;Roraima;2175.35
+Capital;Florianópolis;42;Sul;SU;Santa Catarina;9291.46
+Capital;Aracaju;28;Nordeste;NE;Sergipe;2585.46
+Capital;São Paulo;35;Sudeste;SD;São Paulo;9444.2
+Capital;Palmas;17;Norte;NO;Tocantins;2653.22
+UF;;12;Norte;NO;Acre;2644.84
+UF;;27;Nordeste;NE;Alagoas;2599.88
+UF;;16;Norte;NO;Amapá;2112.04
+UF;;13;Norte;NO;Amazonas;3529.43
+UF;;29;Nordeste;NE;Bahia;2879.4
+UF;;23;Nordeste;NE;Ceará;2707.74
+UF;;53;Centro-Oeste;CO;Distrito Federal;5538.93
+UF;;32;Sudeste;SD;Espírito Santo;3668.08
+UF;;52;Centro-Oeste;CO;Goiás;3071.28
+UF;;21;Nordeste;NE;Maranhão;2293.49
+UF;;51;Centro-Oeste;CO;Mato Grosso;2960.53
+UF;;50;Centro-Oeste;CO;Mato Grosso do Sul;2819.1
+UF;;31;Sudeste;SD;Minas Gerais;4015.8
+UF;;41;Sul;SU;Paraná;3977.8
+UF;;25;Nordeste;NE;Paraíba;2758.71
+UF;;15;Norte;NO;Pará;2703.43
+UF;;26;Nordeste;NE;Pernambuco;3341.51
+UF;;22;Nordeste;NE;Piauí;2285.54
+UF;;24;Nordeste;NE;Rio Grande do Norte;2337.48
+UF;;43;Sul;SU;Rio Grande do Sul;4325.11
+UF;;33;Sudeste;SD;Rio de Janeiro;4897.64
+UF;;11;Norte;NO;Rondônia;2239.67
+UF;;14;Norte;NO;Roraima;2152.26
+UF;;42;Sul;SU;Santa Catarina;5253.2
+UF;;28;Nordeste;NE;Sergipe;2383.97
+UF;;35;Sudeste;SD;São Paulo;7105.7
+UF;;17;Norte;NO;Tocantins;2443.19
