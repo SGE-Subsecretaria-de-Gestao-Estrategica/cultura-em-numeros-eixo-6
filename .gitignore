@@ -1,1 +1,14 @@
-.venv
+# Ambiente virtual
+.venv/
+venv/
+
+# Cache do Python
+__pycache__/
+*.pyc
+
+# Variáveis de ambiente / credenciais
+.env
+
+# Arquivos de sistema/editor
+.DS_Store
+Thumbs.db
