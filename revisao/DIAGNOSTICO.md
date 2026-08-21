@@ -66,7 +66,6 @@ O `.gitignore` da raiz também existe, mas está vazio (0 bytes) — não há ho
 
 ### Falhas esperadas nesta máquina de teste (dados externos por design, não um defeito)
 
-Testado um script representativo de cada um dos 5 grupos (o primeiro da ordem de execução documentada na seção 7 do README). Todos falham pelo mesmo motivo: o caminho aponta para um drive (`E:\`, `D:\`) que só existe no ambiente original — esperado, já que as bases da RAIS são grandes demais para o repositório e o pipeline sempre vai buscar os dados de um local externo (OneDrive/disco).
 
 | Grupo | Script testado | Ponto de falha | Erro |
 |---|---|---|---|
