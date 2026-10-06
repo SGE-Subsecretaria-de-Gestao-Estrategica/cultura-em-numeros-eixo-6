@@ -14,10 +14,7 @@ import pandas as pd
 ARQUIVO_BASE = Path(
     r"D:\OneDrive\Minc\RAIS\RAIS_py\data\processed\rais_2025_filtrado.csv"
 )
-ARQUIVO_CNAE_CRIATIVA = Path(
-    r"E:\Rais\Rais\Auxiliares\CNAE-ibge.xlsx"
-)
-ARQUIVO_SAIDA = Path(r"E:\Rais\Rais\csvs\6.14.csv")
+ARQUIVO_SAIDA = Path(r"E:\Rais\Rais\csvs\6.14B_6.23B.csv")
 
 CHUNK_SIZE = 300_000
 
@@ -28,8 +25,6 @@ CASAS_DECIMAIS_PERCENTUAL = 5
 COL_ANO = "ano"
 COL_ESCOLARIDADE = "Escolaridade Após 2005 - Código"
 COL_SALARIO = "vl_rem_media_nom_deflacionada_2024"
-COL_CNAE = "CNAE 2.0 Subclasse - Código"
-COL_CNAE_AUX = "CNAE_IBGE"
 
 ORDEM_CATEGORIAS = [
     "Sem instrução / Fund. Incompleto",
@@ -73,25 +68,13 @@ def converter_decimal(valor) -> Decimal | None:
     texto = texto.replace(" ", "")
 
     if "," in texto:
-        # Quando há vírgula, trata-a como decimal e remove pontos de milhar.
+        # Vírgula como separador decimal; pontos são tratados como milhares.
         texto = texto.replace(".", "").replace(",", ".")
 
     try:
         return Decimal(texto)
     except InvalidOperation:
         return None
-
-
-def normalizar_cnae(serie: pd.Series) -> pd.Series:
-    """Padroniza os códigos CNAE para comparação."""
-    codigos = (
-        serie.astype("string")
-        .str.strip()
-        .str.replace(r"\.0$", "", regex=True)
-        .str.replace(r"\D", "", regex=True)
-        .replace("", pd.NA)
-    )
-    return codigos.str.zfill(7)
 
 
 def normalizar_codigo(valor) -> str | None:
@@ -109,7 +92,7 @@ def normalizar_codigo(valor) -> str | None:
 
 
 def truncar_casas(valor: Decimal | None, casas: int) -> Decimal | None:
-    """Trunca as casas decimais excedentes, sem arredondar."""
+    """Trunca casas decimais excedentes, sem arredondar."""
     if valor is None:
         return None
 
@@ -131,33 +114,22 @@ def formatar_decimal(valor: Decimal | None) -> str:
 
 
 # ====
-# PROCESSAMENTO PRINCIPAL
+# PROCESSAMENTO
 # ====
 
 def main() -> None:
-    for caminho in [ARQUIVO_BASE, ARQUIVO_CNAE_CRIATIVA]:
-        if not caminho.exists():
-            raise FileNotFoundError(f"Arquivo não encontrado: {caminho}")
-
-    # Carrega os CNAEs da Economia Criativa.
-    df_cnae = pd.read_excel(
-        ARQUIVO_CNAE_CRIATIVA,
-        usecols=[COL_CNAE_AUX],
-        dtype=str,
-    )
-
-    cnaes_criativos = set(
-        normalizar_cnae(df_cnae[COL_CNAE_AUX]).dropna()
-    )
-
-    if not cnaes_criativos:
-        raise ValueError(
-            f"A coluna '{COL_CNAE_AUX}' não contém CNAEs válidos em "
-            f"{ARQUIVO_CNAE_CRIATIVA}."
+    if not ARQUIVO_BASE.exists():
+        raise FileNotFoundError(
+            f"Arquivo-base não encontrado:\n{ARQUIVO_BASE}"
         )
 
-    print(f"Códigos CNAE da Economia Criativa carregados: {len(cnaes_criativos)}")
-    print(f"Processando a base em chunks de {CHUNK_SIZE} linhas...")
+    ARQUIVO_SAIDA.parent.mkdir(parents=True, exist_ok=True)
+
+    colunas_necessarias = [
+        COL_ANO,
+        COL_ESCOLARIDADE,
+        COL_SALARIO,
+    ]
 
     total_vinculos = {
         categoria: 0 for categoria in ORDEM_CATEGORIAS
@@ -169,86 +141,91 @@ def main() -> None:
         categoria: 0 for categoria in ORDEM_CATEGORIAS
     }
 
+    total_linhas_lidas = 0
+    total_linhas_ano = 0
+    total_linhas_escolaridade_mapeada = 0
+    total_salarios_validos = 0
+
+    print("Processando escolaridade — Economia Total, RAIS 2025...")
+    print(f"Arquivo-base: {ARQUIVO_BASE}")
+    print(f"Chunks de {CHUNK_SIZE} linhas")
+    print(f"Saída CSV: {ARQUIVO_SAIDA}\n")
+
     leitor = pd.read_csv(
         ARQUIVO_BASE,
         sep=";",
         encoding="utf-8-sig",
-        usecols=[
-            COL_ANO,
-            COL_ESCOLARIDADE,
-            COL_SALARIO,
-            COL_CNAE,
-        ],
+        usecols=colunas_necessarias,
         dtype=str,
         chunksize=CHUNK_SIZE,
         low_memory=False,
     )
 
-    for numero_chunk, chunk in enumerate(leitor, 1):
-        # Mantém o ano de referência.
-        ano = (
+    for numero_chunk, chunk in enumerate(leitor, start=1):
+        total_linhas_lidas += len(chunk)
+
+        # Mantém registros que contenham o ano de referência.
+        anos = (
             chunk[COL_ANO]
             .astype("string")
             .str.strip()
             .str.replace(r"\.0$", "", regex=True)
         )
-        chunk = chunk.loc[ano == ANO_REFERENCIA].copy()
+        chunk = chunk.loc[
+            anos.str.contains(ANO_REFERENCIA, regex=False, na=False)
+        ].copy()
+        total_linhas_ano += len(chunk)
 
-        if chunk.empty:
-            print(f"  Chunk {numero_chunk}: nenhum registro de {ANO_REFERENCIA}.")
-            continue
+        if not chunk.empty:
+            # Mapeia as categorias de escolaridade.
+            codigos = chunk[COL_ESCOLARIDADE].map(normalizar_codigo)
+            chunk["escolaridade"] = codigos.map(MAPA_ESCOLARIDADE)
+            chunk = chunk.loc[chunk["escolaridade"].notna()].copy()
+            total_linhas_escolaridade_mapeada += len(chunk)
 
-        # Mantém os registros da Economia Criativa.
-        mascara_ec = normalizar_cnae(chunk[COL_CNAE]).isin(cnaes_criativos)
-        chunk = chunk.loc[mascara_ec].copy()
+            if not chunk.empty:
+                # Conta vínculos por categoria.
+                contagens = chunk["escolaridade"].value_counts()
+                for categoria, quantidade in contagens.items():
+                    total_vinculos[categoria] += int(quantidade)
 
-        if chunk.empty:
-            print(f"  Chunk {numero_chunk}: nenhum registro de EC.")
-            continue
+                # Acumula salários válidos por categoria.
+                for categoria in ORDEM_CATEGORIAS:
+                    valores = chunk.loc[
+                        chunk["escolaridade"] == categoria,
+                        COL_SALARIO,
+                    ].map(converter_decimal)
 
-        # Mapeia as categorias de escolaridade.
-        codigo_escolaridade = chunk[COL_ESCOLARIDADE].map(normalizar_codigo)
-        chunk["escolaridade"] = codigo_escolaridade.map(MAPA_ESCOLARIDADE)
-        chunk = chunk.loc[chunk["escolaridade"].notna()].copy()
+                    salarios_validos = [
+                        valor
+                        for valor in valores
+                        if valor is not None and valor > 0
+                    ]
 
-        if chunk.empty:
-            print(
-                f"  Chunk {numero_chunk}: nenhum registro com "
-                "escolaridade mapeada."
-            )
-            continue
+                    soma_salarios[categoria] += sum(
+                        salarios_validos,
+                        start=Decimal("0"),
+                    )
+                    qtd_salarios_validos[categoria] += len(
+                        salarios_validos
+                    )
+                    total_salarios_validos += len(salarios_validos)
 
-        # Conta vínculos por categoria.
-        contagens = chunk["escolaridade"].value_counts()
-        for categoria, quantidade in contagens.items():
-            total_vinculos[categoria] += int(quantidade)
+        print(
+            f"Chunk {numero_chunk:>4} | "
+            f"lidas: {total_linhas_lidas:>15,} | "
+            f"ano de referência: {total_linhas_ano:>15,} | "
+            f"escolaridade mapeada: "
+            f"{total_linhas_escolaridade_mapeada:>15,} | "
+            f"salários válidos: {total_salarios_validos:>15,}"
+        )
 
-        # Acumula salários válidos por categoria.
-        for categoria in ORDEM_CATEGORIAS:
-            valores = chunk.loc[
-                chunk["escolaridade"] == categoria, COL_SALARIO
-            ].map(converter_decimal)
+    total_geral_vinculos = sum(total_vinculos.values())
 
-            salarios_validos = [
-                valor
-                for valor in valores
-                if valor is not None and valor > 0
-            ]
-
-            soma_salarios[categoria] += sum(
-                salarios_validos,
-                start=Decimal("0"),
-            )
-            qtd_salarios_validos[categoria] += len(salarios_validos)
-
-        print(f"  Chunk {numero_chunk} processado.")
-
-    total_geral = sum(total_vinculos.values())
-
-    if total_geral == 0:
+    if total_geral_vinculos == 0:
         raise ValueError(
-            "Nenhum vínculo foi encontrado após os filtros. "
-            "Verifique os arquivos de entrada."
+            "Nenhum vínculo do ano de referência com escolaridade mapeada "
+            "foi encontrado. Verifique os dados de entrada."
         )
 
     registros = []
@@ -269,6 +246,7 @@ def main() -> None:
                     soma_salarios[categoria]
                     / Decimal(quantidade_salarios)
                 )
+
             media_salarial = truncar_casas(
                 media_salarial,
                 CASAS_DECIMAIS_NOMINAL,
@@ -279,7 +257,8 @@ def main() -> None:
         with localcontext() as contexto:
             contexto.prec = 50
             participacao = (
-                Decimal(quantidade_vinculos) / Decimal(total_geral)
+                Decimal(quantidade_vinculos)
+                / Decimal(total_geral_vinculos)
             )
 
         participacao = truncar_casas(
@@ -296,6 +275,7 @@ def main() -> None:
                 "media_salarial_deflacionada_2024": formatar_decimal(
                     media_salarial
                 ),
+                "num_salarios_validos": quantidade_salarios,
             }
         )
 
@@ -305,20 +285,27 @@ def main() -> None:
         "num_vinculos",
         "pct_participacao",
         "media_salarial_deflacionada_2024",
+        "num_salarios_validos",
     ]
     resultado = pd.DataFrame(registros, columns=colunas_saida)
 
-    ARQUIVO_SAIDA.parent.mkdir(parents=True, exist_ok=True)
     resultado.to_csv(
         ARQUIVO_SAIDA,
-        index=False,
         sep=";",
+        index=False,
         encoding="utf-8-sig",
         na_rep="",
     )
 
-    print(f"\nCSV gerado com sucesso: {ARQUIVO_SAIDA}")
-    print(f"Registros exportados: {len(resultado)}")
+    print("\nProcessamento concluído.")
+    print(f"Linhas lidas: {total_linhas_lidas:,}")
+    print(f"Registros do ano de referência: {total_linhas_ano:,}")
+    print(
+        "Registros com escolaridade mapeada: "
+        f"{total_linhas_escolaridade_mapeada:,}"
+    )
+    print(f"Salários válidos (> 0): {total_salarios_validos:,}")
+    print(f"CSV salvo em: {ARQUIVO_SAIDA}")
 
 
 if __name__ == "__main__":

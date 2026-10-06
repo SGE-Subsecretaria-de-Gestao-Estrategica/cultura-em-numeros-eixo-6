@@ -1,11 +1,12 @@
 """
 gerar_informalidade2.py
-=======================
+====
 Lê o arquivo "Tabela 6.4.xlsx" (múltiplas abas anuais) e gera o arquivo
 "Informalidade2.xlsx" no mesmo formato do arquivo original de referência.
 
 Colunas de saída:
-    Escopo | Escala | Recorte | Formal - Total | Informal - Total | Ano
+    Escopo | Escala | Recorte | Formal - Total | Informal - Total |
+    Trabalhadores - Total | Trabalhadores - Cultura | Ano
 
 Regras de mapeamento:
     - Brasil            → Escala = "Nacional",  Recorte = "Brasil"
@@ -15,8 +16,10 @@ Regras de mapeamento:
     - "Rio de Janeiro" e "São Paulo" aparecem duas vezes por ano:
         1ª ocorrência → Estadual
         2ª ocorrência → Municipal
-    - Escopo "Total"    → colunas de todos os setores (cols 3-4 da tabela)
-    - Escopo "Cultura"  → colunas do setor cultural (cols 9-10 da tabela)
+    - Escopo "Total"    → colunas de todos os setores
+    - Escopo "Cultura"  → colunas do setor cultural
+    - Valores de trabalhadores nas colunas B e H, em milhares,
+      são multiplicados por 1.000 para obter o número de trabalhadores.
     - Ano 2014          → excluído (mantém apenas 2015-2024)
     - Ordenação final   → Escopo, Escala, Recorte, Ano (decrescente)
 """
@@ -24,9 +27,9 @@ Regras de mapeamento:
 import re
 import pandas as pd
 
-# ---------------------------------------------------------------------------
+# ----
 # Configurações
-# ---------------------------------------------------------------------------
+# ----
 INPUT_FILE  = r"E:\Rais\Rais\Informalidade\Tabela 6.4.xlsx"
 OUTPUT_FILE = r"E:\Rais\Rais\Informalidade\Informalidade2.xlsx"
 
@@ -57,9 +60,7 @@ def detect_year_from_title(title: str) -> int | None:
 
 
 def find_data_start(df: pd.DataFrame) -> int:
-    """
-    Localiza a linha onde os dados começam (linha com 'Brasil' na col 0).
-    """
+    """Localiza a linha onde os dados começam (linha com 'Brasil' na col 0)."""
     for i, val in enumerate(df.iloc[:, 0]):
         if str(val).strip() == "Brasil":
             return i
@@ -104,11 +105,13 @@ def parse_sheet(df: pd.DataFrame, year: int) -> list[dict]:
     """
     Processa um bloco de dados anual e retorna lista de registros.
 
-    Layout das colunas (0-indexed, após localizar a linha de dados):
+    Colunas do DataFrame (índices começando em zero):
         col 0  → localidade
-        col 3  → Formal  (todos os setores, proporção %)
+        col 1  → trabalhadores Total, em milhares (coluna B)
+        col 3  → Formal (todos os setores, proporção %)
         col 5  → Informal (todos os setores, proporção %)
-        col 9  → Formal  (setor cultural, proporção %)
+        col 7  → trabalhadores Cultura, em milhares (coluna H)
+        col 9  → Formal (setor cultural, proporção %)
         col 11 → Informal (setor cultural, proporção %)
     """
     start = find_data_start(df)
@@ -129,10 +132,16 @@ def parse_sheet(df: pd.DataFrame, year: int) -> list[dict]:
         escala, recorte = classification
 
         try:
+            # Percentuais são convertidos para proporções
             formal_total   = float(row.iloc[3]) / 100
             informal_total = float(row.iloc[5]) / 100
             formal_cult    = float(row.iloc[9]) / 100
             informal_cult  = float(row.iloc[11]) / 100
+
+            # Valores de trabalhadores estão em milhares; converter para unidades
+            trabalhadores_total = float(row.iloc[1]) * 1000
+            trabalhadores_cultura = float(row.iloc[7]) * 1000
+
         except (ValueError, TypeError):
             continue  # linha sem dados numéricos válidos
 
@@ -142,6 +151,8 @@ def parse_sheet(df: pd.DataFrame, year: int) -> list[dict]:
             "Recorte": recorte,
             "Formal - Total": round(formal_total, 6),
             "Informal - Total": round(informal_total, 6),
+            "Trabalhadores - Total": trabalhadores_total,
+            "Trabalhadores - Cultura": trabalhadores_cultura,
             "Ano": year,
         })
         records.append({
@@ -150,6 +161,8 @@ def parse_sheet(df: pd.DataFrame, year: int) -> list[dict]:
             "Recorte": recorte,
             "Formal - Total": round(formal_cult, 6),
             "Informal - Total": round(informal_cult, 6),
+            "Trabalhadores - Total": trabalhadores_total,
+            "Trabalhadores - Cultura": trabalhadores_cultura,
             "Ano": year,
         })
 
@@ -193,7 +206,14 @@ def main():
         return
 
     df_out = pd.DataFrame(all_records, columns=[
-        "Escopo", "Escala", "Recorte", "Formal - Total", "Informal - Total", "Ano"
+        "Escopo",
+        "Escala",
+        "Recorte",
+        "Formal - Total",
+        "Informal - Total",
+        "Trabalhadores - Total",
+        "Trabalhadores - Cultura",
+        "Ano",
     ])
 
     # Ordenação: Escopo, Escala, Recorte (alfabético), Ano (decrescente)

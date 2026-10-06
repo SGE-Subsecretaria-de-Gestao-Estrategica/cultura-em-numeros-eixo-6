@@ -14,43 +14,21 @@ import pandas as pd
 ARQUIVO_BASE = Path(
     r"D:\OneDrive\Minc\RAIS\RAIS_py\data\processed\rais_2025_filtrado.csv"
 )
-ARQUIVO_CNAE_CRIATIVA = Path(
-    r"E:\Rais\Rais\Auxiliares\CNAE-ibge.xlsx"
-)
-ARQUIVO_SAIDA = Path(r"E:\Rais\Rais\csvs\6.13.csv")
+ARQUIVO_SAIDA = Path(r"E:\Rais\Rais\csvs\6.12B_6.19B.csv")
 
 CHUNK_SIZE = 300_000
 
 CASAS_DECIMAIS_NOMINAL = 3
 CASAS_DECIMAIS_PERCENTUAL = 5
 
-COL_ANO = "ano"
-COL_RACA = "Raça Cor - Código"
+COL_SEXO = "Sexo - Código"
 COL_SALARIO = "vl_rem_media_nom_deflacionada_2024"
-COL_CNAE = "CNAE 2.0 Subclasse - Código"
-COL_CNAE_AUX = "CNAE_IBGE"
 
-ANO_REFERENCIA = 2025
-
-ORDEM_CATEGORIAS = [
-    "Indígena",
-    "Branca",
-    "Preta/Parda",
-    "Amarela",
-    "Não identificado",
-    "Ignorado",
-]
-
-MAPA_RACA = {
-    "1": "Indígena",
-    "2": "Branca",
-    "4": "Preta/Parda",
-    "8": "Preta/Parda",
-    "6": "Amarela",
-    "9": "Não identificado",
-    "99": "Não identificado",
-    "-1": "Ignorado",
+MAPA_SEXO = {
+    "1": "Masculino",
+    "2": "Feminino",
 }
+ORDEM_CATEGORIAS = ["Masculino", "Feminino"]
 
 
 # ====
@@ -87,32 +65,6 @@ def converter_decimal(valor) -> Decimal | None:
         return None
 
 
-def normalizar_cnae(serie: pd.Series) -> pd.Series:
-    """Padroniza os códigos CNAE para comparação."""
-    codigos = (
-        serie.astype("string")
-        .str.strip()
-        .str.replace(r"\.0$", "", regex=True)
-        .str.replace(r"\D", "", regex=True)
-        .replace("", pd.NA)
-    )
-    return codigos.str.zfill(7)
-
-
-def normalizar_codigo_categoria(valor) -> str | None:
-    """Padroniza códigos de categoria (sexo, raça etc.) para o mapa."""
-    if pd.isna(valor):
-        return None
-
-    texto = str(valor).strip()
-    texto = re.sub(r"\.0+$", "", texto)
-
-    if texto in {"", "nan", "none", "null"}:
-        return None
-
-    return texto
-
-
 def limitar_casas(valor: Decimal | None, casas: int) -> Decimal | None:
     """Limita o número de casas decimais, sem zeros à direita."""
     if valor is None:
@@ -141,34 +93,8 @@ def formatar_decimal(valor: Decimal | None) -> str:
 
 def main() -> None:
     try:
-        for caminho in [ARQUIVO_BASE, ARQUIVO_CNAE_CRIATIVA]:
-            if not caminho.exists():
-                raise FileNotFoundError(f"Arquivo não encontrado: {caminho}")
-
-        # Carrega os CNAEs da Economia Criativa.
-        df_cnae = pd.read_excel(
-            ARQUIVO_CNAE_CRIATIVA,
-            usecols=[COL_CNAE_AUX],
-            dtype=str,
-        )
-
-        cnaes_criativos = set(
-            normalizar_cnae(df_cnae[COL_CNAE_AUX]).dropna()
-        )
-
-        if not cnaes_criativos:
-            raise ValueError(
-                f"A coluna '{COL_CNAE_AUX}' não contém CNAEs válidos em "
-                f"{ARQUIVO_CNAE_CRIATIVA}."
-            )
-
-        print(
-            "Códigos CNAE da Economia Criativa carregados: "
-            f"{len(cnaes_criativos)}"
-        )
-        print(
-            f"\nProcessando arquivo-base em chunks de {CHUNK_SIZE} linhas..."
-        )
+        if not ARQUIVO_BASE.exists():
+            raise FileNotFoundError(f"Arquivo não encontrado: {ARQUIVO_BASE}")
 
         total_vinculos = {categoria: 0 for categoria in ORDEM_CATEGORIAS}
         soma_salarios = {
@@ -178,61 +104,49 @@ def main() -> None:
             categoria: 0 for categoria in ORDEM_CATEGORIAS
         }
 
+        print(
+            f"\nProcessando arquivo-base em chunks de {CHUNK_SIZE} linhas "
+            "(sem filtro de CNAE)..."
+        )
+
         leitor = pd.read_csv(
             ARQUIVO_BASE,
             sep=";",
             encoding="utf-8-sig",
-            usecols=[COL_ANO, COL_RACA, COL_SALARIO, COL_CNAE],
+            usecols=[COL_SEXO, COL_SALARIO],
             dtype=str,
             chunksize=CHUNK_SIZE,
             low_memory=False,
         )
 
         for numero_chunk, chunk in enumerate(leitor, 1):
-            # Filtra o ano de referência.
-            chunk = chunk.loc[
-                chunk[COL_ANO].astype(str).str.strip()
-                == str(ANO_REFERENCIA)
-            ].copy()
+            # Mantém toda a base: nenhum filtro de CNAE é aplicado.
 
-            if chunk.empty:
-                print(
-                    f"  Chunk {numero_chunk}: nenhum registro de "
-                    f"{ANO_REFERENCIA}."
-                )
-                continue
-
-            # Filtra os registros da Economia Criativa.
-            mascara_ec = normalizar_cnae(chunk[COL_CNAE]).isin(
-                cnaes_criativos
+            # Padroniza e mapeia as categorias de sexo.
+            cod_sexo = (
+                chunk[COL_SEXO]
+                .astype("string")
+                .str.strip()
+                .str.replace(r"\.0$", "", regex=True)
             )
-            chunk = chunk.loc[mascara_ec].copy()
-
-            if chunk.empty:
-                print(f"  Chunk {numero_chunk}: nenhum registro de EC.")
-                continue
-
-            # Padroniza e mapeia as categorias de raça/cor.
-            cod_raca = chunk[COL_RACA].map(normalizar_codigo_categoria)
-            chunk["categoria_raca"] = cod_raca.map(MAPA_RACA)
-            chunk = chunk.loc[chunk["categoria_raca"].notna()].copy()
+            chunk["sexo"] = cod_sexo.map(MAPA_SEXO)
+            chunk = chunk.loc[chunk["sexo"].notna()].copy()
 
             if chunk.empty:
                 print(
-                    f"  Chunk {numero_chunk}: nenhum registro com "
-                    "raça/cor válida."
+                    f"  Chunk {numero_chunk}: nenhum registro com sexo válido."
                 )
                 continue
 
             # Conta vínculos por categoria.
-            contagens = chunk["categoria_raca"].value_counts()
+            contagens = chunk["sexo"].value_counts()
             for categoria, quantidade in contagens.items():
                 total_vinculos[categoria] += int(quantidade)
 
             # Soma salários válidos por categoria.
             for categoria in ORDEM_CATEGORIAS:
                 salarios = chunk.loc[
-                    chunk["categoria_raca"] == categoria, COL_SALARIO
+                    chunk["sexo"] == categoria, COL_SALARIO
                 ].map(converter_decimal)
 
                 salarios_validos = [
@@ -254,7 +168,7 @@ def main() -> None:
         if total_geral == 0:
             raise ValueError(
                 "Nenhum vínculo foi encontrado após os filtros. "
-                "Verifique os arquivos de entrada."
+                "Verifique o arquivo de entrada."
             )
 
         registros = []
@@ -290,8 +204,7 @@ def main() -> None:
 
             registros.append(
                 {
-                    "raca_cor": categoria,
-                    "ano": ANO_REFERENCIA,
+                    "sexo": categoria,
                     "num_vinculos": quantidade,
                     "pct_participacao": formatar_decimal(participacao),
                     "media_salarial": formatar_decimal(media_salarial),
@@ -301,8 +214,7 @@ def main() -> None:
         resultado = pd.DataFrame(
             registros,
             columns=[
-                "raca_cor",
-                "ano",
+                "sexo",
                 "num_vinculos",
                 "pct_participacao",
                 "media_salarial",

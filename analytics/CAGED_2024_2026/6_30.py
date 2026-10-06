@@ -1,95 +1,176 @@
 from __future__ import annotations
 
+from decimal import Decimal, InvalidOperation, ROUND_DOWN, localcontext
 from pathlib import Path
 
 import pandas as pd
 
-# =============================================================================
-# CONFIGURAÇÕES
-# =============================================================================
 
-ARQUIVO_ENTRADA = Path(r"E:\Rais\CAGED\data\caged_IRCA_final_2016_2026.csv")
-ARQUIVO_SAIDA = Path(r"E:\Rais\Rais\csvs\6.31.csv")
+# ====
+# CONFIGURACAO
+# ====
+
+ARQUIVO_ENTRADA = Path(
+    r"E:\Rais\CAGED\data\caged_IRCA_final_2016_2026.csv"
+)
+ARQUIVO_SAIDA = Path(r"E:\Rais\Rais\csvs\6.30.csv")
 
 GRUPO_CULTURA = "Cultura"
 ROTULO_ECONOMIA_CRIATIVA = "Economia Criativa"
 GRUPO_BRASIL = "Brasil"
-DATA_CORTE = pd.Timestamp("2024-12-01")
 
-COL_ANO = "ano"
-COL_MES = "mes"
-COL_GRUPO = "grupo"
-COL_IRCA_VINCULOS = "IRCA_Vinculos"
-COL_IRCA_SALARIAL = "IRCA_Salarial"
+ANO_CORTE = 2024
+MES_CORTE = 12
+CASAS_DECIMAIS_PERCENTUAL = 5
+
+COL_ANO_ORIGEM = "ano"
+COL_MES_ORIGEM = "mes"
+COL_GRUPO_ORIGEM = "grupo"
+COL_IRCA_VINCULOS_ORIGEM = "IRCA_Vinculos"
+COL_IRCA_SALARIAL_ORIGEM = "IRCA_Salarial"
 
 
-# =============================================================================
-# FUNÇÕES AUXILIARES
-# =============================================================================
+# ====
+# FUNCOES AUXILIARES
+# ====
 
-def preparar_dados(df_origem: pd.DataFrame, grupo: str) -> pd.DataFrame:
+def converter_decimal(valor) -> Decimal | None:
     """
-    Filtra os dados de um grupo e calcula as variações em relação
-    à base 100 de dezembro de 2024.
+    Converte um valor numérico para Decimal.
 
-    A saída adota o padrão decimal:
-    0.025 representa 2,5%.
+    Aceita ponto ou vírgula decimal. Se houver ambos, interpreta como
+    separador decimal o que estiver mais à direita.
     """
-    df_grupo = df_origem[
-        df_origem[COL_GRUPO]
-        .astype(str)
-        .str.strip()
-        .str.lower() == grupo.lower()
-    ].copy()
+    if pd.isna(valor):
+        return None
 
-    if df_grupo.empty:
-        return df_grupo
+    texto = str(valor).strip()
 
-    df_grupo[COL_ANO] = pd.to_numeric(df_grupo[COL_ANO], errors="coerce")
-    df_grupo[COL_MES] = pd.to_numeric(df_grupo[COL_MES], errors="coerce")
+    if texto.casefold() in {"", "nan", "none", "null"}:
+        return None
 
-    df_grupo["data"] = pd.to_datetime(
-        {
-            "year": df_grupo[COL_ANO],
-            "month": df_grupo[COL_MES],
-            "day": 1,
-        },
-        errors="coerce",
+    texto = texto.replace(" ", "").replace("\u00a0", "")
+
+    if "," in texto and "." in texto:
+        if texto.rfind(",") > texto.rfind("."):
+            # Exemplo: 1.234,56
+            texto = texto.replace(".", "").replace(",", ".")
+        else:
+            # Exemplo: 1,234.56
+            texto = texto.replace(",", "")
+    elif "," in texto:
+        texto = texto.replace(",", ".")
+
+    try:
+        numero = Decimal(texto)
+    except InvalidOperation:
+        return None
+
+    return numero if numero.is_finite() else None
+
+
+def converter_inteiro(valor) -> int | None:
+    """Converte ano ou mês para inteiro, retornando None se inválido."""
+    numero = converter_decimal(valor)
+
+    if numero is None:
+        return None
+
+    if numero != numero.to_integral_value():
+        return None
+
+    return int(numero)
+
+
+def formatar_percentual_truncado(valor: Decimal | None) -> str:
+    """Trunca a proporção percentual a até cinco casas decimais."""
+    if valor is None:
+        return ""
+
+    fator = Decimal(1).scaleb(-CASAS_DECIMAIS_PERCENTUAL)
+
+    with localcontext() as contexto:
+        contexto.prec = 50
+        valor_truncado = valor.quantize(fator, rounding=ROUND_DOWN)
+
+    texto = format(valor_truncado, "f")
+
+    if "." in texto:
+        texto = texto.rstrip("0").rstrip(".")
+
+    return texto
+
+
+def grupo_contem_rotulo(serie: pd.Series, rotulo: str) -> pd.Series:
+    """Faz uma busca tolerante a maiúsculas, minúsculas e espaços."""
+    valores = serie.astype("string").str.strip().str.casefold()
+    termo = rotulo.strip().casefold()
+    return valores.str.contains(termo, regex=False, na=False)
+
+
+def calcular_variacao(irca: Decimal | None) -> str:
+    """Converte um índice em base 100 para proporção de variação."""
+    if irca is None:
+        return ""
+
+    with localcontext() as contexto:
+        contexto.prec = 50
+        variacao = (irca - Decimal("100")) / Decimal("100")
+
+    return formatar_percentual_truncado(variacao)
+
+
+def preparar_grupo(
+    df_origem: pd.DataFrame,
+    rotulo_origem: str,
+    rotulo_saida: str,
+) -> list[dict]:
+    """Filtra um grupo, calcula variações e aplica o corte temporal."""
+    mascara_grupo = grupo_contem_rotulo(
+        df_origem[COL_GRUPO_ORIGEM],
+        rotulo_origem,
     )
+    df_grupo = df_origem.loc[mascara_grupo]
 
-    df_grupo[COL_IRCA_VINCULOS] = pd.to_numeric(
-        df_grupo[COL_IRCA_VINCULOS],
-        errors="coerce",
-    )
-    df_grupo[COL_IRCA_SALARIAL] = pd.to_numeric(
-        df_grupo[COL_IRCA_SALARIAL],
-        errors="coerce",
-    )
+    registros = []
 
-    df_grupo = (
-        df_grupo
-        .dropna(subset=["data", COL_IRCA_VINCULOS, COL_IRCA_SALARIAL])
-        .sort_values("data")
-        .reset_index(drop=True)
-    )
+    for _, linha in df_grupo.iterrows():
+        ano = converter_inteiro(linha[COL_ANO_ORIGEM])
+        mes = converter_inteiro(linha[COL_MES_ORIGEM])
 
-    # O IRCA está em base 100.
-    # Exemplo: IRCA de 102,5 corresponde à variação de 2,5%,
-    # exportada como 0.025 no padrão decimal.
-    df_grupo["variacao_vinculos_pct"] = (
-        (df_grupo[COL_IRCA_VINCULOS] - 100) / 100
-    ).round(6)
+        if ano is None or mes is None or not 1 <= mes <= 12:
+            continue
 
-    df_grupo["variacao_salarial_pct"] = (
-        (df_grupo[COL_IRCA_SALARIAL] - 100) / 100
-    ).round(6)
+        if (ano, mes) < (ANO_CORTE, MES_CORTE):
+            continue
 
-    return df_grupo
+        irca_vinculos = converter_decimal(
+            linha[COL_IRCA_VINCULOS_ORIGEM]
+        )
+        irca_salarial = converter_decimal(
+            linha[COL_IRCA_SALARIAL_ORIGEM]
+        )
+
+        # Mantém a observação quando ao menos um dos indicadores é válido.
+        if irca_vinculos is None and irca_salarial is None:
+            continue
+
+        registros.append(
+            {
+                "ano": ano,
+                "mes": mes,
+                "grupo": rotulo_saida,
+                "pct_variacao_vinculos": calcular_variacao(irca_vinculos),
+                "pct_variacao_salarial": calcular_variacao(irca_salarial),
+            }
+        )
+
+    return registros
 
 
-# =============================================================================
+# ====
 # PROCESSAMENTO PRINCIPAL
-# =============================================================================
+# ====
 
 def main() -> None:
     try:
@@ -103,86 +184,91 @@ def main() -> None:
         df = pd.read_csv(
             ARQUIVO_ENTRADA,
             sep=";",
-            decimal=",",
             encoding="utf-8-sig",
+            dtype=str,
+            low_memory=False,
         )
-
-        colunas_necessarias = {
-            COL_ANO,
-            COL_MES,
-            COL_GRUPO,
-            COL_IRCA_VINCULOS,
-            COL_IRCA_SALARIAL,
-        }
-
-        colunas_ausentes = colunas_necessarias - set(df.columns)
-        if colunas_ausentes:
-            raise KeyError(
-                f"Colunas obrigatórias ausentes no arquivo: {sorted(colunas_ausentes)}"
-            )
-
-        print("Preparando dados da Economia Criativa...")
-        df_cultura = preparar_dados(df, GRUPO_CULTURA)
-
-        print("Preparando dados do Brasil...")
-        df_brasil = preparar_dados(df, GRUPO_BRASIL)
-
-        # Atualizar rótulo para Economia Criativa
-        df_cultura[COL_GRUPO] = ROTULO_ECONOMIA_CRIATIVA
-
-        # Manter somente o período representado no gráfico.
-        df_cultura = df_cultura[
-            df_cultura["data"] >= DATA_CORTE
-        ].copy()
-
-        df_brasil = df_brasil[
-            df_brasil["data"] >= DATA_CORTE
-        ].copy()
-
-        if df_cultura.empty:
-            raise ValueError(
-                f"Nenhum registro encontrado para {ROTULO_ECONOMIA_CRIATIVA} a partir de dezembro de 2024."
-            )
-
-        if df_brasil.empty:
-            raise ValueError(
-                "Nenhum registro encontrado para Brasil a partir de dezembro de 2024."
-            )
-
-        colunas_saida = [
-            COL_ANO,
-            COL_MES,
-            COL_GRUPO,
-            "variacao_vinculos_pct",
-            "variacao_salarial_pct",
+        df.columns = [
+            str(coluna).replace("\ufeff", "").strip()
+            for coluna in df.columns
         ]
 
-        resultado = pd.concat(
-            [
-                df_cultura[colunas_saida],
-                df_brasil[colunas_saida],
-            ],
-            ignore_index=True,
+        colunas_necessarias = {
+            COL_ANO_ORIGEM,
+            COL_MES_ORIGEM,
+            COL_GRUPO_ORIGEM,
+            COL_IRCA_VINCULOS_ORIGEM,
+            COL_IRCA_SALARIAL_ORIGEM,
+        }
+        colunas_ausentes = sorted(colunas_necessarias - set(df.columns))
+
+        if colunas_ausentes:
+            raise KeyError(
+                "Colunas obrigatórias ausentes no arquivo: "
+                f"{colunas_ausentes}"
+            )
+
+        registros = []
+        registros.extend(
+            preparar_grupo(
+                df,
+                GRUPO_CULTURA,
+                ROTULO_ECONOMIA_CRIATIVA,
+            )
+        )
+        registros.extend(
+            preparar_grupo(
+                df,
+                GRUPO_BRASIL,
+                GRUPO_BRASIL,
+            )
         )
 
-        resultado = (
-            resultado
-            .sort_values([COL_ANO, COL_MES, COL_GRUPO])
-            .reset_index(drop=True)
+        if not any(
+            registro["grupo"] == ROTULO_ECONOMIA_CRIATIVA
+            for registro in registros
+        ):
+            raise ValueError(
+                "Nenhum registro de Cultura encontrado a partir "
+                "de dezembro de 2024."
+            )
+
+        if not any(
+            registro["grupo"] == GRUPO_BRASIL
+            for registro in registros
+        ):
+            raise ValueError(
+                "Nenhum registro de Brasil encontrado a partir "
+                "de dezembro de 2024."
+            )
+
+        resultado = pd.DataFrame(
+            registros,
+            columns=[
+                "ano",
+                "mes",
+                "grupo",
+                "pct_variacao_vinculos",
+                "pct_variacao_salarial",
+            ],
         )
+
+        resultado = resultado.sort_values(
+            ["ano", "mes", "grupo"],
+            kind="stable",
+        ).reset_index(drop=True)
 
         ARQUIVO_SAIDA.parent.mkdir(parents=True, exist_ok=True)
-
         resultado.to_csv(
             ARQUIVO_SAIDA,
             index=False,
             sep=";",
-            decimal=".",
             encoding="utf-8-sig",
+            na_rep="",
         )
 
         print(f"\nCSV gerado com sucesso: {ARQUIVO_SAIDA}")
-        print(f"Total de registros exportados: {len(resultado):,}")
+        print(f"Registros exportados: {len(resultado):,}")
 
     except FileNotFoundError as erro:
         print(f"Erro: {erro}")

@@ -1,5 +1,5 @@
-﻿categoria_porte;total_trabalhadores;salario_medio
-Microempresa;433062;2486.24
-Pequena Empresa;511134;3444.04
-Média Empresa;188190;4795.01
-Grande Empresa;759696;7684.04
+﻿ano;categoria_porte;num_vinculos;media_salarial_deflacionada_2024
+2025;Microempresa;433062;2486.241
+2025;Pequena Empresa;511134;3444.044
+2025;Média Empresa;188190;4795.008
+2025;Grande Empresa;759696;7684.036

@@ -1,123 +1,261 @@
 from __future__ import annotations
 
+from decimal import Decimal, InvalidOperation, ROUND_DOWN, localcontext
 from pathlib import Path
+import re
+
 import pandas as pd
 
-# =============================================================================
-# CONFIGURAÇÕES
-# =============================================================================
 
-ARQUIVO_BASE  = Path(r"E:\Rais\Rais\DF1\data\rais_metricas_grupos_2016_2025_com_informalidade.csv")
+# ====
+# CONFIGURACAO
+# ====
+
+ARQUIVO_BASE = Path(
+    r"E:\Rais\Rais\DF1\data\rais_metricas_grupos_2015_2025_com_informalidade.csv"
+)
 ARQUIVO_SAIDA = Path(r"E:\Rais\Rais\csvs\6.17.csv")
 
-# Mapeamento: nome exato no CSV -> nome de exibição
-GRUPOS_MAPPING = {
-    "Brasil":                                                                    "Brasil",
-    "Cultura":                                                                   "Economia Criativa",
-    "Agricultura, pecuária, produção florestal, pesca e aquicultura":            "Agricultura",
-    "Indústria extrativa":                                                       "Indústria extrativa",
-    "Construção":                                                                "Construção Civil",
-}
-
+CASAS_DECIMAIS_NOMINAL = 3
 ANOS = list(range(2016, 2026))
 
+# Mapeamento: nome do grupo no arquivo-base -> rótulo de saída.
+GRUPOS_MAPPING = {
+    "Brasil": "Brasil",
+    "Cultura": "Economia Criativa",
+    "Agricultura, pecuária, produção florestal, pesca e aquicultura": "Agricultura",
+    "Indústria extrativa": "Indústria extrativa",
+    "Construção": "Construção Civil",
+}
 
-# =============================================================================
-# FUNÇÕES AUXILIARES
-# =============================================================================
-
-def parse_num_col(serie: pd.Series) -> pd.Series:
-    """Converte coluna numérica com possível formatação brasileira para float."""
-    s = serie.astype(str).str.strip()
-    s = s.str.replace(r'(?i)\s*e\+?', 'E', regex=True)
-    s = s.str.replace(r'\.(?=\d{3}(\D|$))', '', regex=True)
-    s = s.str.replace(',', '.', regex=False)
-    return pd.to_numeric(s, errors='coerce')
+COL_GRUPO = "grupo"
+COL_ANO = "ano"
+COL_MEDIA = "media_def"
 
 
-# =============================================================================
+# ====
+# FUNCOES AUXILIARES
+# ====
+
+def normalizar_texto(valor) -> str:
+    """Normaliza espaços e maiúsculas/minúsculas para comparar rótulos."""
+    if pd.isna(valor):
+        return ""
+
+    return re.sub(r"\s+", " ", str(valor).strip()).casefold()
+
+
+def localizar_grupo(valor) -> str | None:
+    """Relaciona o rótulo da base a um grupo de saída."""
+    texto = normalizar_texto(valor)
+
+    if not texto:
+        return None
+
+    nomes_normalizados = {
+        normalizar_texto(nome_base): nome_base
+        for nome_base in GRUPOS_MAPPING
+    }
+
+    # Prioriza correspondência exata.
+    if texto in nomes_normalizados:
+        return nomes_normalizados[texto]
+
+    # Permite encontrar o rótulo quando vier acompanhado de texto adicional.
+    correspondencias = [
+        nome_base
+        for nome_base in GRUPOS_MAPPING
+        if normalizar_texto(nome_base) in texto
+    ]
+
+    if not correspondencias:
+        return None
+
+    # Se houver mais de uma possível correspondência, prioriza o nome mais específico.
+    return max(correspondencias, key=lambda nome: len(normalizar_texto(nome)))
+
+
+def converter_decimal(valor) -> Decimal | None:
+    """Converte número com ponto ou vírgula decimal para Decimal."""
+    if pd.isna(valor):
+        return None
+
+    texto = str(valor).strip()
+
+    if texto.casefold() in {"", "nan", "none", "null"}:
+        return None
+
+    texto = texto.replace(" ", "")
+
+    if "," in texto:
+        # Vírgula decimal; pontos são tratados como separadores de milhar.
+        texto = texto.replace(".", "").replace(",", ".")
+
+    try:
+        numero = Decimal(texto)
+    except InvalidOperation:
+        return None
+
+    if not numero.is_finite():
+        return None
+
+    return numero
+
+
+def truncar_casas(valor: Decimal, casas: int) -> Decimal:
+    """Trunca casas decimais excedentes sem arredondar."""
+    fator = Decimal(1).scaleb(-casas)
+
+    with localcontext() as contexto:
+        contexto.prec = 50
+        return valor.quantize(fator, rounding=ROUND_DOWN)
+
+
+def formatar_decimal(valor: Decimal | None) -> str:
+    """Formata o número com ponto decimal, sem zeros finais desnecessários."""
+    if valor is None:
+        return ""
+
+    texto = format(valor, "f")
+
+    if "." in texto:
+        texto = texto.rstrip("0").rstrip(".")
+
+    return texto
+
+
+def carregar_csv(caminho: Path) -> pd.DataFrame:
+    """Lê o CSV tentando os separadores previstos nos arquivos do projeto."""
+    colunas_necessarias = {COL_GRUPO, COL_ANO, COL_MEDIA}
+
+    for separador in (";", ","):
+        df = pd.read_csv(
+            caminho,
+            sep=separador,
+            encoding="utf-8-sig",
+            dtype=str,
+            keep_default_na=False,
+        )
+        df.columns = [
+            str(coluna).replace("\ufeff", "").strip()
+            for coluna in df.columns
+        ]
+
+        if colunas_necessarias.issubset(df.columns):
+            return df
+
+    raise KeyError(
+        "Não foi possível localizar todas as colunas necessárias "
+        f"({COL_GRUPO}, {COL_ANO}, {COL_MEDIA}). "
+        f"Colunas encontradas: {list(df.columns)}"
+    )
+
+
+# ====
 # PROCESSAMENTO PRINCIPAL
-# =============================================================================
+# ====
 
 def main() -> None:
-    try:
-        if not ARQUIVO_BASE.exists():
-            raise FileNotFoundError(f"Arquivo não encontrado: {ARQUIVO_BASE}")
-
-        # Leitura do arquivo base
-        try:
-            df = pd.read_csv(ARQUIVO_BASE, sep=';', encoding='utf-8-sig', engine='python')
-        except Exception:
-            df = pd.read_csv(ARQUIVO_BASE, sep=',', encoding='utf-8-sig', engine='python')
-
-        df.columns = [c.strip('\ufeff').strip() for c in df.columns]
-
-        if 'media_def' not in df.columns:
-            raise KeyError(f"Coluna 'media_def' não encontrada. Colunas disponíveis: {list(df.columns)}")
-        if 'grupo' not in df.columns:
-            raise KeyError(f"Coluna 'grupo' não encontrada. Colunas disponíveis: {list(df.columns)}")
-
-        df['media_def'] = parse_num_col(df['media_def'])
-        df['ano'] = pd.to_numeric(df['ano'], errors='coerce').astype('Int64')
-
-        # Filtra apenas os anos de interesse
-        df = df[df['ano'].isin(ANOS)].copy()
-
-        registros = []
-
-        for csv_nome, exibicao_nome in GRUPOS_MAPPING.items():
-            subset = df[df['grupo'] == csv_nome].copy()
-
-            if subset.empty:
-                subset = df[df['grupo'].str.strip() == csv_nome].copy()
-
-            if subset.empty:
-                print(f"Aviso: Grupo '{csv_nome}' não localizado no CSV.")
-                continue
-
-            # Média por ano (caso haja mais de uma linha por ano/grupo)
-            serie_anual = (
-                subset.groupby('ano')['media_def']
-                .mean()
-                .reindex(ANOS)
-            )
-
-            for ano, valor in serie_anual.items():
-                registros.append({
-                    "grupo": exibicao_nome,
-                    "ano":   int(ano),
-                    "media_salarial_deflacionada": round(float(valor), 2) if pd.notna(valor) else None,
-                })
-
-        if not registros:
-            raise ValueError(
-                "Nenhum dado encontrado após os filtros. "
-                "Verifique os grupos e o arquivo de entrada."
-            )
-
-        resultado = pd.DataFrame(registros)
-
-        ARQUIVO_SAIDA.parent.mkdir(parents=True, exist_ok=True)
-
-        resultado.to_csv(
-            ARQUIVO_SAIDA,
-            index=False,
-            sep=";",
-            decimal=".",
-            encoding="utf-8-sig",
+    if not ARQUIVO_BASE.exists():
+        raise FileNotFoundError(
+            f"Arquivo não encontrado: {ARQUIVO_BASE}"
         )
 
-        print(f"\nCSV gerado com sucesso: {ARQUIVO_SAIDA}")
-        print(f"Registros exportados : {len(resultado)}")
+    df = carregar_csv(ARQUIVO_BASE)
 
-    except FileNotFoundError as erro:
-        print(f"Erro: {erro}")
+    # Normaliza anos mantendo somente os quatro dígitos do ano.
+    anos_texto = (
+        df[COL_ANO]
+        .astype("string")
+        .str.strip()
+        .str.replace(r"\.0$", "", regex=True)
+    )
+    df[COL_ANO] = pd.to_numeric(anos_texto, errors="coerce")
 
-    except (KeyError, ValueError) as erro:
-        print(f"Erro de validação dos dados: {erro}")
+    df = df.loc[df[COL_ANO].isin(ANOS)].copy()
+    df[COL_ANO] = df[COL_ANO].astype(int)
 
-    except Exception as erro:
-        print(f"Erro inesperado: {erro}")
+    # Identifica os grupos de interesse.
+    df["grupo_base"] = df[COL_GRUPO].map(localizar_grupo)
+    df = df.loc[df["grupo_base"].notna()].copy()
+
+    if df.empty:
+        raise ValueError(
+            "Nenhum dado encontrado para os grupos e anos definidos. "
+            "Verifique os rótulos de grupo e o arquivo de entrada."
+        )
+
+    df["media_decimal"] = df[COL_MEDIA].map(converter_decimal)
+
+    registros = []
+
+    for grupo_base, grupo_saida in GRUPOS_MAPPING.items():
+        subset = df.loc[df["grupo_base"] == grupo_base]
+
+        if subset.empty:
+            print(f"Aviso: grupo '{grupo_base}' não localizado no CSV.")
+            continue
+
+        for ano in ANOS:
+            valores = [
+                valor
+                for valor in subset.loc[
+                    subset[COL_ANO] == ano, "media_decimal"
+                ].tolist()
+                if valor is not None
+            ]
+
+            if valores:
+                with localcontext() as contexto:
+                    contexto.prec = 50
+                    media_anual = sum(
+                        valores,
+                        start=Decimal("0"),
+                    ) / Decimal(len(valores))
+
+                media_anual = truncar_casas(
+                    media_anual,
+                    CASAS_DECIMAIS_NOMINAL,
+                )
+            else:
+                media_anual = None
+
+            registros.append(
+                {
+                    "grupo": grupo_saida,
+                    "ano": ano,
+                    "media_salarial_deflacionada": formatar_decimal(
+                        media_anual
+                    ),
+                }
+            )
+
+    if not registros:
+        raise ValueError(
+            "Nenhum registro foi produzido. Verifique os grupos "
+            "e os dados do arquivo de entrada."
+        )
+
+    resultado = pd.DataFrame(
+        registros,
+        columns=[
+            "grupo",
+            "ano",
+            "media_salarial_deflacionada",
+        ],
+    )
+
+    ARQUIVO_SAIDA.parent.mkdir(parents=True, exist_ok=True)
+    resultado.to_csv(
+        ARQUIVO_SAIDA,
+        index=False,
+        sep=";",
+        encoding="utf-8-sig",
+        na_rep="",
+    )
+
+    print(f"\nCSV gerado com sucesso: {ARQUIVO_SAIDA}")
+    print(f"Registros exportados: {len(resultado)}")
 
 
 if __name__ == "__main__":

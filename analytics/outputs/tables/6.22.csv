@@ -1,11 +1,11 @@
-﻿raca_cor;sexo;media_salarial
+﻿raca_cor;sexo;media_salarial_deflacionada_2024
 Indígena;Feminino;4011.53
-Indígena;Masculino;5183.06
-Branca;Feminino;5033.19
-Branca;Masculino;7197.8
-Preta/Parda;Feminino;3090.77
-Preta/Parda;Masculino;4200.75
-Amarela;Feminino;7203.42
-Amarela;Masculino;10387.29
-Não identificado;Feminino;3303.26
+Indígena;Masculino;5183.055
+Branca;Feminino;5033.185
+Branca;Masculino;7197.795
+Preta/Parda;Feminino;3090.774
+Preta/Parda;Masculino;4200.748
+Amarela;Feminino;7203.418
+Amarela;Masculino;10387.289
+Não identificado;Feminino;3303.261
 Não identificado;Masculino;4205.56

@@ -43,7 +43,7 @@ CNAE_CULTURA_COL  = "CNAE_IBGE"
 OUT_DIR = Path(r"E:\Rais\DF2\data")
 OUT_DIR.mkdir(parents=True, exist_ok=True)
 
-OUT1 = OUT_DIR / "saida_1_estab_cultura_2025_base.csv"
+OUT1 = OUT_DIR / "saida_1_estab_cultura_2016_2025_base.csv"
 OUT2 = OUT_DIR / "saida_2_brasil_natureza_juridica_categoria.csv"
 OUT3 = OUT_DIR / "saida_3_brasil_tamanho_estabelecimento_categoria.csv"
 

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import re
 from decimal import Decimal, InvalidOperation, ROUND_DOWN, localcontext
 from pathlib import Path
 
@@ -14,10 +13,7 @@ import pandas as pd
 ARQUIVO_BASE = Path(
     r"D:\OneDrive\Minc\RAIS\RAIS_py\data\processed\rais_2025_filtrado.csv"
 )
-ARQUIVO_CNAE_CRIATIVA = Path(
-    r"E:\Rais\Rais\Auxiliares\CNAE-ibge.xlsx"
-)
-ARQUIVO_SAIDA = Path(r"E:\Rais\Rais\csvs\6.15.csv")
+ARQUIVO_SAIDA = Path(r"E:\Rais\Rais\csvs\6.15B_6.24B.csv")
 
 CHUNK_SIZE = 300_000
 
@@ -26,8 +22,6 @@ CASAS_DECIMAIS_PERCENTUAL = 5
 
 COL_IDADE = "Idade"
 COL_SALARIO = "vl_rem_media_nom_deflacionada_2024"
-COL_CNAE = "CNAE 2.0 Subclasse - Código"
-COL_CNAE_AUX = "CNAE_IBGE"
 
 ORDEM_FAIXAS = [
     "Jovem (15 – 29)",
@@ -41,8 +35,29 @@ ORDEM_FAIXAS = [
 # FUNCOES AUXILIARES
 # ====
 
+def converter_idade(valor) -> int | None:
+    """Converte idade inteira; retorna None para valor ausente ou inválido."""
+    if pd.isna(valor):
+        return None
+
+    texto = str(valor).strip()
+
+    if texto.casefold() in {"", "nan", "none", "null"}:
+        return None
+
+    try:
+        idade_decimal = Decimal(texto)
+    except InvalidOperation:
+        return None
+
+    if idade_decimal != idade_decimal.to_integral_value():
+        return None
+
+    return int(idade_decimal)
+
+
 def classificar_idade(idade: int) -> str | None:
-    """Retorna a faixa etária ou None se a idade estiver fora do escopo."""
+    """Retorna a faixa etária ou None se estiver fora do escopo."""
     if 15 <= idade <= 29:
         return "Jovem (15 – 29)"
     if 30 <= idade <= 44:
@@ -52,18 +67,6 @@ def classificar_idade(idade: int) -> str | None:
     if idade >= 60:
         return "Idoso (60+)"
     return None
-
-
-def normalizar_cnae(serie: pd.Series) -> pd.Series:
-    """Padroniza os códigos CNAE para comparação."""
-    codigos = (
-        serie.astype("string")
-        .str.strip()
-        .str.replace(r"\.0$", "", regex=True)
-        .str.replace(r"\D", "", regex=True)
-        .replace("", pd.NA)
-    )
-    return codigos.str.zfill(7)
 
 
 def converter_decimal(valor) -> Decimal | None:
@@ -79,7 +82,8 @@ def converter_decimal(valor) -> Decimal | None:
     texto = texto.replace(" ", "")
 
     if "," in texto:
-        # Vírgula como separador decimal; pontos são separadores de milhar.
+        # Se há vírgula, trata-a como separador decimal
+        # e remove pontos usados como separadores de milhar.
         texto = texto.replace(".", "").replace(",", ".")
 
     try:
@@ -94,6 +98,7 @@ def truncar_casas(valor: Decimal | None, casas: int) -> Decimal | None:
         return None
 
     fator = Decimal(1).scaleb(-casas)
+
     with localcontext() as contexto:
         contexto.prec = 50
         return valor.quantize(fator, rounding=ROUND_DOWN)
@@ -112,84 +117,53 @@ def formatar_decimal(valor: Decimal | None) -> str:
     return texto
 
 
-def classificar_idade_valor(valor) -> str | None:
-    """Classifica apenas idades numéricas inteiras."""
-    if pd.isna(valor):
-        return None
-
-    try:
-        idade_decimal = Decimal(str(valor).strip())
-    except InvalidOperation:
-        return None
-
-    if idade_decimal != idade_decimal.to_integral_value():
-        return None
-
-    return classificar_idade(int(idade_decimal))
-
-
 # ====
-# PROCESSAMENTO PRINCIPAL
+# PROCESSAMENTO
 # ====
 
 def main() -> None:
-    for caminho in [ARQUIVO_BASE, ARQUIVO_CNAE_CRIATIVA]:
-        if not caminho.exists():
-            raise FileNotFoundError(f"Arquivo não encontrado: {caminho}")
-
-    # Carrega os CNAEs da Economia Criativa.
-    df_cnae = pd.read_excel(
-        ARQUIVO_CNAE_CRIATIVA,
-        usecols=[COL_CNAE_AUX],
-        dtype=str,
-    )
-    cnaes_criativos = set(
-        normalizar_cnae(df_cnae[COL_CNAE_AUX]).dropna()
-    )
-
-    if not cnaes_criativos:
-        raise ValueError(
-            f"A coluna '{COL_CNAE_AUX}' não contém CNAEs válidos em "
-            f"{ARQUIVO_CNAE_CRIATIVA}."
+    if not ARQUIVO_BASE.exists():
+        raise FileNotFoundError(
+            f"Arquivo-base não encontrado:\n{ARQUIVO_BASE}"
         )
 
-    print(f"Códigos CNAE da Economia Criativa carregados: {len(cnaes_criativos)}")
-    print(f"Processando a base em chunks de {CHUNK_SIZE} linhas...")
-
     total_vinculos = {faixa: 0 for faixa in ORDEM_FAIXAS}
-    soma_salarios = {faixa: Decimal("0") for faixa in ORDEM_FAIXAS}
+    soma_salarios = {
+        faixa: Decimal("0") for faixa in ORDEM_FAIXAS
+    }
     qtd_salarios_validos = {faixa: 0 for faixa in ORDEM_FAIXAS}
+
+    print("Processando faixas etárias — Economia Total...")
+    print(f"Arquivo-base: {ARQUIVO_BASE}")
+    print(f"Chunks de {CHUNK_SIZE} linhas")
+    print(f"Saída CSV: {ARQUIVO_SAIDA}\n")
 
     leitor = pd.read_csv(
         ARQUIVO_BASE,
         sep=";",
         encoding="utf-8-sig",
-        usecols=[COL_IDADE, COL_SALARIO, COL_CNAE],
+        usecols=[COL_IDADE, COL_SALARIO],
         dtype=str,
         chunksize=CHUNK_SIZE,
         low_memory=False,
     )
 
     for numero_chunk, chunk in enumerate(leitor, 1):
-        # Filtra os registros da Economia Criativa.
-        mascara_ec = normalizar_cnae(chunk[COL_CNAE]).isin(cnaes_criativos)
-        chunk = chunk.loc[mascara_ec].copy()
-
-        if chunk.empty:
-            print(f"  Chunk {numero_chunk}: nenhum registro de EC.")
-            continue
-
         # Classifica as idades válidas.
-        idades = pd.to_numeric(
-            chunk[COL_IDADE].astype("string").str.strip(),
-            errors="coerce",
+        idades = chunk[COL_IDADE].map(converter_idade)
+        chunk["faixa_etaria"] = idades.map(
+            lambda idade: (
+                classificar_idade(idade)
+                if idade is not None
+                else None
+            )
         )
-        chunk["faixa_etaria"] = idades.map(classificar_idade_valor)
         chunk = chunk.loc[chunk["faixa_etaria"].notna()].copy()
 
         if chunk.empty:
             print(
-                f"  Chunk {numero_chunk}: nenhum registro em faixa etária válida."
+                f"  Chunk {numero_chunk}: "
+                "nenhum registro em faixa etária válida."
             )
             continue
 
@@ -201,7 +175,8 @@ def main() -> None:
         # Acumula salários válidos por faixa etária.
         for faixa in ORDEM_FAIXAS:
             valores = chunk.loc[
-                chunk["faixa_etaria"] == faixa, COL_SALARIO
+                chunk["faixa_etaria"] == faixa,
+                COL_SALARIO,
             ].map(converter_decimal)
 
             salarios_validos = [
@@ -222,8 +197,8 @@ def main() -> None:
 
     if total_geral == 0:
         raise ValueError(
-            "Nenhum vínculo foi encontrado após os filtros. "
-            "Verifique os arquivos de entrada."
+            "Nenhum vínculo foi encontrado em faixas etárias válidas. "
+            "Verifique os dados de entrada."
         )
 
     registros = []
@@ -243,6 +218,7 @@ def main() -> None:
                 media_salarial = (
                     soma_salarios[faixa] / Decimal(quantidade_salarios)
                 )
+
             media_salarial = truncar_casas(
                 media_salarial,
                 CASAS_DECIMAIS_NOMINAL,

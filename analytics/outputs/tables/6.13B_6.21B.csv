@@ -1,6 +1,6 @@
-﻿Raça/Cor;Total de vínculos;Percentual de vínculos;Média salarial deflacionada (R$ 2024);Quantidade de salários válidos (> 0)
-Indígena;213284;0,4;3525,12;179806
-Branca;26817468;44,2;4875,79;24093554
-Preta/Parda;31054021;51,2;3329,73;27638394
-Amarela;599920;1,0;5498,8;535918
-Não identificado;2004011;3,3;4495,94;1582804
+﻿ano;raca_cor;num_vinculos;pct_participacao;media_salarial_deflacionada_2024;num_salarios_validos
+2025;Indígena;213284;0.00351;3525.115;179806
+2025;Branca;26817468;0.44188;4875.787;24093554
+2025;Preta/Parda;31054021;0.51169;3329.725;27638394
+2025;Amarela;599920;0.00988;5498.804;535918
+2025;Não identificado;2004011;0.03302;4495.944;1582804
